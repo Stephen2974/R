@@ -9,209 +9,70 @@ library(scDblFinder)
 library(Seurat)
 library(SingleCellExperiment)
 library(scDblFinder)
-#####1.matrix.mtx、genes.tsv和barcodes.tsv####
-#HC
-#目录
-setwd("D:/liver2")
+#####1. 读取目录下 CSV.gz 表达矩阵（基因 x 细胞）####
+# 数据在 D:/R，无需先解压 .gz
+library(Matrix)
+setwd("D:/R")
 
-# 获取数据文件夹下的所有样本文件列表
-samples <- list.files("D:/liver2/04WCMatrix/01GEX/HC/")
+# 获取所有样本文件（如 GSM5573466_sample1.csv.gz）
+files <- list.files("D:/R", pattern = "\\.csv\\.gz$", full.names = TRUE)
+files <- sort(files)
 
 # 创建一个空的列表
 seurat_list <- list()
 
-samples <- c("HC-4222", "HC-4297")
-
 # 读取数据并创建Seurat对象
-for (sample in samples) {
+for (f in files) {
   
-  # --- 【新增部分】自动解析 Patient 和 Day ---
+  # 样本名：GSM5573466_sample1.csv.gz -> sample1
+  sample <- sub("\\.csv\\.gz$", "", basename(f))
+  sample <- sub("^GSM\\d+_", "", sample)
   
-  # 1. 提取 Patient (横杠前面的部分)
-  # sub("-.*", "", sample) 的意思是：把横杠及其后面的所有内容替换为空
-  patient_id <- sub("-.*", "", sample)
+  message("正在读取: ", basename(f), " -> ", sample)
   
-  # 2. 提取 Day (横杠后面的部分)
-  # sub(".*-", "", sample) 的意思是：把横杠及其前面的所有内容替换为空
-  day_info <- sub(".*-", "", sample)
-  
-  # 3. 处理特殊情况 (如 "pre")
-  # 如果 day_info 是 "pre"，将其转换为数字 0 (或者你可以保留为字符 "pre")
-  if (day_info == "pre") {
-    day_num <- 0 
-    # 注意：如果你希望保留 "pre" 字符串而不是转为0，可以把下面这行注释掉，
-    # 并确保 meta.data 里的列是字符型而不是数值型。
-  } else {
-    day_num <- as.numeric(day_info)
-  }
-  
-  # ----------------------------------------
-  
-  # 文件路径
-  data.path <- paste0("D:/liver2/04WCMatrix/01GEX/HC/", sample)
-  
-  # 读取10x数据
-  seurat_data <- Read10X(data.dir = data.path)
+  # 读入压缩 CSV：第 1 列基因名，其余列为细胞
+  dt <- fread(f)
+  genes <- as.character(dt[[1]])
+  counts <- as.matrix(dt[, -1, with = FALSE])
+  rownames(counts) <- make.unique(genes)
+  counts <- Matrix(counts, sparse = TRUE)
+  rm(dt)
   
   # 创建Seurat对象
   seurat_obj <- CreateSeuratObject(
-    counts = seurat_data,
+    counts = counts,
     project = sample,
     min.features = 200,
     min.cells = 3
   )
   
-  # --- 【新增部分】将信息写入元数据 ---
-  
-  # 将提取到的信息添加到 seurat_obj 的 meta.data 中
-  seurat_obj$Patient <- patient_id
-  seurat_obj$Day <- day_num
+  # 写入样本信息（原 Patient/Day 命名不适用当前 GEO 文件名，后续有 metadata 再补）
+  seurat_obj$Sample <- sample
   
   # 添加到列表中
-  seurat_list[[sample]] <- seurat_obj # 建议使用这种方式添加，比 append 更稳妥且保留名字
+  seurat_list[[sample]] <- seurat_obj
+  rm(counts, seurat_obj)
 }
 
 # 合并所有对象
-HC <- merge(seurat_list[[1]], y = seurat_list[-1])
-
-# 验证结果
-head(HC@meta.data)
-#查看
-table(HC@meta.data$orig.ident)
-
-#PT283
-setwd("D:/liver2")
-
-# 获取数据文件夹下的所有样本文件列表
-samples <- list.files("D:/liver2/04WCMatrix/01GEX/PT283/")
-
-# 创建一个空的列表
-seurat_list <- list()
-
-
-# 读取数据并创建Seurat对象
-for (sample in samples) {
-  
-  # --- 【新增部分】自动解析 Patient 和 Day ---
-  
-  # 1. 提取 Patient (横杠前面的部分)
-  # sub("-.*", "", sample) 的意思是：把横杠及其后面的所有内容替换为空
-  patient_id <- sub("-.*", "", sample)
-  
-  # 2. 提取 Day (横杠后面的部分)
-  # sub(".*-", "", sample) 的意思是：把横杠及其前面的所有内容替换为空
-  day_info <- sub(".*-", "", sample)
-  
-  # 3. 处理特殊情况 (如 "pre")
-  # 如果 day_info 是 "pre"，将其转换为数字 0 (或者你可以保留为字符 "pre")
-  if (day_info == "pre") {
-    day_num <- 0 
-    # 注意：如果你希望保留 "pre" 字符串而不是转为0，可以把下面这行注释掉，
-    # 并确保 meta.data 里的列是字符型而不是数值型。
-  } else {
-    day_num <- as.numeric(day_info)
-  }
-  
-  # ----------------------------------------
-  
-  # 文件路径
-  data.path <- paste0("D:/liver2/04WCMatrix/01GEX/PT283/", sample)
-  
-  # 读取10x数据
-  seurat_data <- Read10X(data.dir = data.path)
-  
-  # 创建Seurat对象
-  seurat_obj <- CreateSeuratObject(
-    counts = seurat_data,
-    project = sample,
-    min.features = 200,
-    min.cells = 3
+if (length(seurat_list) == 1) {
+  seu <- seurat_list[[1]]
+} else {
+  seu <- merge(
+    seurat_list[[1]],
+    y = seurat_list[-1],
+    add.cell.ids = names(seurat_list)
   )
-  
-  # --- 【新增部分】将信息写入元数据 ---
-  
-  # 将提取到的信息添加到 seurat_obj 的 meta.data 中
-  seurat_obj$Patient <- patient_id
-  seurat_obj$Day <- day_num
-  
-  # 添加到列表中
-  seurat_list[[sample]] <- seurat_obj # 建议使用这种方式添加，比 append 更稳妥且保留名字
 }
 
-# 合并所有对象
-PT283 <- merge(seurat_list[[1]], y = seurat_list[-1])
-
 # 验证结果
-head(PT283@meta.data)
-#查看
-table(PT283@meta.data$orig.ident)
+head(seu@meta.data)
+table(seu@meta.data$orig.ident)
 
-#PT406
-setwd("D:/liver2")
-
-# 获取数据文件夹下的所有样本文件列表
-samples <- list.files("D:/liver2/04WCMatrix/01GEX/PT406/")
-
-# 创建一个空的列表
-seurat_list <- list()
-
-
-# 读取数据并创建Seurat对象
-for (sample in samples) {
-  
-  # --- 【新增部分】自动解析 Patient 和 Day ---
-  
-  # 1. 提取 Patient (横杠前面的部分)
-  # sub("-.*", "", sample) 的意思是：把横杠及其后面的所有内容替换为空
-  patient_id <- sub("-.*", "", sample)
-  
-  # 2. 提取 Day (横杠后面的部分)
-  # sub(".*-", "", sample) 的意思是：把横杠及其前面的所有内容替换为空
-  day_info <- sub(".*-", "", sample)
-  
-  # 3. 处理特殊情况 (如 "pre")
-  # 如果 day_info 是 "pre"，将其转换为数字 0 (或者你可以保留为字符 "pre")
-  if (day_info == "pre") {
-    day_num <- 0 
-    # 注意：如果你希望保留 "pre" 字符串而不是转为0，可以把下面这行注释掉，
-    # 并确保 meta.data 里的列是字符型而不是数值型。
-  } else {
-    day_num <- as.numeric(day_info)
-  }
-  
-  # ----------------------------------------
-  
-  # 文件路径
-  data.path <- paste0("D:/liver2/04WCMatrix/01GEX/PT406/", sample)
-  
-  # 读取10x数据
-  seurat_data <- Read10X(data.dir = data.path)
-  
-  # 创建Seurat对象
-  seurat_obj <- CreateSeuratObject(
-    counts = seurat_data,
-    project = sample,
-    min.features = 200,
-    min.cells = 3
-  )
-  
-  # --- 【新增部分】将信息写入元数据 ---
-  
-  # 将提取到的信息添加到 seurat_obj 的 meta.data 中
-  seurat_obj$Patient <- patient_id
-  seurat_obj$Day <- day_num
-  
-  # 添加到列表中
-  seurat_list[[sample]] <- seurat_obj # 建议使用这种方式添加，比 append 更稳妥且保留名字
-}
-
-# 合并所有对象
-PT406 <- merge(seurat_list[[1]], y = seurat_list[-1])
-
-# 验证结果
-head(PT406@meta.data)
-#查看
-table(PT406@meta.data$orig.ident)
+# ------------------------------------------------------------
+# 说明：读入已改为单列表 + 合并对象 seu。
+# 下面质控仍按旧的 HC / PT283 / PT406 三组写，下一步再改分组逻辑。
+# ------------------------------------------------------------
 
 #质量控制
 #线粒体基因比例
