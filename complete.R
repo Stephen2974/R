@@ -24,9 +24,10 @@ seurat_list <- list()
 # 读取数据并创建Seurat对象
 for (f in files) {
   
-  # 样本名：GSM5573466_sample1.csv.gz -> sample1
+  # 样本名保留完整文件名（去后缀）：GSM5573466_sample1.csv.gz -> GSM5573466_sample1
   sample <- sub("\\.csv\\.gz$", "", basename(f))
-  sample <- sub("^GSM\\d+_", "", sample)
+  # 单独抽出 GSM 登录号，便于对照 GEO
+  gsm_id <- sub("_.*$", "", sample)
   
   message("正在读取: ", basename(f), " -> ", sample)
   
@@ -38,7 +39,7 @@ for (f in files) {
   counts <- Matrix(counts, sparse = TRUE)
   rm(dt)
   
-  # 创建Seurat对象
+  # 创建Seurat对象（orig.ident = 完整样本名）
   seurat_obj <- CreateSeuratObject(
     counts = counts,
     project = sample,
@@ -46,8 +47,9 @@ for (f in files) {
     min.cells = 3
   )
   
-  # 写入样本信息（原 Patient/Day 命名不适用当前 GEO 文件名，后续有 metadata 再补）
+  # 元数据：文件名能确定的字段；Patient/Group 等有表后再补
   seurat_obj$Sample <- sample
+  seurat_obj$GSM <- gsm_id
   
   # 添加到列表中
   seurat_list[[sample]] <- seurat_obj
