@@ -1,23 +1,21 @@
 library(Seurat)
 library(data.table)
+library(R.utils)  # fread 直接读 .gz 需要
 library(stringr)
 library(tibble)
 library(ggplot2)
 library(patchwork)
-library(DoubletFinder)
 library(scDblFinder)
-library(Seurat)
 library(SingleCellExperiment)
-library(scDblFinder)
 library(Matrix)
 library(harmony)
 
 #####1. 读取目录下 CSV.gz 表达矩阵（基因 x 细胞）####
-# 数据在 D:/R，无需先解压 .gz
-setwd("D:/R")
+# 数据在 G:/R，无需先解压 .gz
+setwd("G:/R")
 
 # 获取所有样本文件（如 GSM5573466_sample1.csv.gz）
-files <- list.files("D:/R", pattern = "\\.csv\\.gz$", full.names = TRUE)
+files <- list.files("G:/R", pattern = "\\.csv\\.gz$", full.names = TRUE)
 files <- sort(files)
 
 # 创建一个空的列表
@@ -163,7 +161,7 @@ seu_clean <- CellCycleScoring(
 )
 
 seu_clean <- ScaleData(seu_clean, vars.to.regress = c("S.Score", "G2M.Score"))
-saveRDS(seu_clean, file = "D:/R/seu_clean_quxibaozhouqi.rds")
+saveRDS(seu_clean, file = "G:/R/seu_clean_quxibaozhouqi.rds")
 
 seu_clean <- RunPCA(seu_clean)
 
@@ -178,11 +176,11 @@ cor_df <- data.frame(
 )
 cor_df
 
-# Harmony 按样本去批次
+# Harmony 按样本去批次（harmony 2.x 用 reduction.use，不要写 reduction）
 seu_clean <- RunHarmony(
   seu_clean,
   group.by.vars = "orig.ident",
-  reduction = "pca",
+  reduction.use = "pca",
   dims.use = 1:30
 )
 
@@ -194,4 +192,4 @@ seu_clean <- RunUMAP(seu_clean, dims = 1:30, reduction = "harmony")
 # 简单查看
 DimPlot(seu_clean, reduction = "umap", group.by = "orig.ident", label = FALSE) + NoLegend()
 DimPlot(seu_clean, reduction = "umap", label = TRUE)
-saveRDS(seu_clean, file = "D:/R/seu_clean_harmony_umap.rds")
+saveRDS(seu_clean, file = "G:/R/seu_clean_harmony_umap.rds")

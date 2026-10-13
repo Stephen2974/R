@@ -1,0 +1,16 @@
+# R 中间/结果对象（体积大，勿上传）
+*.rds
+*.RData
+*.Rhistory
+.Rproj.user/
+Rplot.pdf
+
+# Office / 编辑器临时文件
+~$*
+*.tmp
+*.temp
+
+# 常见系统垃圾文件
+Thumbs.db
+Desktop.ini
+.DS_Store
