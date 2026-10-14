@@ -66,7 +66,57 @@ if (length(seurat_list) == 1) {
     add.cell.ids = names(seurat_list)
   )
 }
+# 合并刚结束、质控还没开始，此时每个细胞都在
+# 先补上病人、部位和分组，后面的质控和子集会一直带着这三列
+sample_meta <- data.frame(
+  # sample1 到 sample40。下面三列必须按这个顺序写，第 1 个值对应 sample1
+  sample_no = paste0("sample", 1:40),
+  Patient = c(  # 病人编号。同一个人的肿瘤和正常用同一个编号
+    "NGCII518","NGCII518","NGCII519","NGCII520","NGCII520",
+    "NGCII521","NGCII521","NGCII524","NGCII525","NGCII525",
+    "NGCII527","NGCII527","NGCII529","NGCII502","NGCII511",
+    "NGCII499","NGCII509","NGCII498","NGCII011","NGCII015",
+    "NGCII513","NGCII513","NGCII514","NGCII514","NGCII512",
+    "NGCII512","NGCII510","NGCII531","NGCII522","NGCII533",
+    "NGCII536","NGCII539","NGCII540","NGCII541","NGCII538",
+    "NGCII538","NGCII538","NGCII538","NGCII543","NGCII545"
+  ),
+  Tissue = c(   # 取样部位：原发胃，或腹膜
+    "原发胃","原发胃","原发胃","原发胃","原发胃",
+    "原发胃","原发胃","原发胃","原发胃","原发胃",
+    "原发胃","原发胃","原发胃","原发胃","原发胃",
+    "原发胃","原发胃","原发胃","腹膜","腹膜",
+    "原发胃","原发胃","原发胃","原发胃","原发胃",
+    "原发胃","原发胃","原发胃","原发胃","原发胃",
+    "原发胃","原发胃","原发胃","原发胃","原发胃",
+    "原发胃","腹膜","腹膜","原发胃","原发胃"
+  ),
+  Group = c(    # 肿瘤，或配对的正常胃组织
+    "正常","肿瘤","肿瘤","正常","肿瘤",
+    "正常","肿瘤","肿瘤","正常","肿瘤",
+    "正常","肿瘤","肿瘤","肿瘤","肿瘤",
+    "肿瘤","肿瘤","肿瘤","肿瘤","肿瘤",
+    "正常","肿瘤","正常","肿瘤","正常",
+    "肿瘤","肿瘤","肿瘤","肿瘤","肿瘤",
+    "正常","肿瘤","肿瘤","肿瘤","正常",
+    "肿瘤","正常","肿瘤","肿瘤","肿瘤"
+  ),
+  stringsAsFactors = FALSE
+)
 
+# Sample 现在是 GSM5573466_sample1。去掉前面的 GSM 编号，只留 sample1，才能和对照表对齐
+seu$sample_no <- sub("^.*_", "", seu$Sample)
+# 每个细胞对应对照表的哪一行。对不上时是 NA
+hit <- match(seu$sample_no, sample_meta$sample_no)
+stopifnot(!any(is.na(hit)))   # 有 NA 就停下来，说明有样本没写进对照表
+# 按行号把病人、部位、分组写到每个细胞上
+seu$Patient <- sample_meta$Patient[hit]
+seu$Tissue  <- sample_meta$Tissue[hit]
+seu$Group   <- sample_meta$Group[hit]
+
+# 核对：每个样本只能是肿瘤或正常；腹膜应只有 sample19、20、38 的肿瘤和 sample37 的正常
+table(seu$sample_no, seu$Group)
+table(seu$Tissue, seu$Group)
 # 验证结果
 head(seu@meta.data)
 table(seu@meta.data$orig.ident)
@@ -160,12 +210,14 @@ seu_clean <- CellCycleScoring(
   set.ident = FALSE
 )
 
-seu_clean <- ScaleData(seu_clean, vars.to.regress = c("S.Score", "G2M.Score"))
+# 先不回归细胞周期。S.Score 和 G2M.Score 先留在元数据里，后面看它们是否真的主导分群
+seu_clean <- ScaleData(seu_clean)
 saveRDS(seu_clean, file = "G:/R/seu_clean_quxibaozhouqi.rds")
 
 seu_clean <- RunPCA(seu_clean)
 
-# 检查前 10 个 PC 与细胞周期分数的相关
+# 此时 PCA 还没去掉周期。看前 10 个 PC 和 S / G2M 的相关
+# 相关弱就用现在这份结果；若某个 PC 和周期分数明显一起变，再单独做一版回归
 pca_emb <- Embeddings(seu_clean, reduction = "pca")
 cor_s <- cor(pca_emb[, 1:10], seu_clean$S.Score, method = "spearman")
 cor_g2m <- cor(pca_emb[, 1:10], seu_clean$G2M.Score, method = "spearman")
@@ -189,7 +241,18 @@ seu_clean <- FindNeighbors(seu_clean, dims = 1:30, reduction = "harmony")
 seu_clean <- FindClusters(seu_clean, resolution = 0.3)
 seu_clean <- RunUMAP(seu_clean, dims = 1:30, reduction = "harmony")
 
-# 简单查看
-DimPlot(seu_clean, reduction = "umap", group.by = "orig.ident", label = FALSE) + NoLegend()
-DimPlot(seu_clean, reduction = "umap", label = TRUE)
+# 按肿瘤/正常、原发胃/腹膜、病人着色。前两张保留图例；病人太多，第三张不画图例
+ggsave("umap_group.pdf",
+       DimPlot(seu_clean, reduction = "umap", group.by = "Group"),
+       width = 8, height = 6)
+ggsave("umap_tissue.pdf",
+       DimPlot(seu_clean, reduction = "umap", group.by = "Tissue"),
+       width = 8, height = 6)
+ggsave("umap_patient.pdf",
+       DimPlot(seu_clean, reduction = "umap", group.by = "Patient") + NoLegend(),
+       width = 8, height = 6)
+# 簇编号图，后面做大类注释时对照这张
+ggsave("umap_cluster.pdf",
+       DimPlot(seu_clean, reduction = "umap", label = TRUE),
+       width = 8, height = 6)
 saveRDS(seu_clean, file = "G:/R/seu_clean_harmony_umap.rds")
